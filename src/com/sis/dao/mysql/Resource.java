@@ -143,7 +143,7 @@ public class Resource implements com.sis.dao.Resource {
 		return writeConnection;
 	}
 
-	protected static synchronized Connection getConnection(String dbId) {
+	protected static Connection getConnection(String dbId) {
 		Connection con = null;
 
 		// fill cache
@@ -295,11 +295,7 @@ public class Resource implements com.sis.dao.Resource {
 			int field = 1;
 			for (String key : fields.keySet()) {
 				 stmt.setObject(field++, fields.get(key));
-//				stmt.setString(field++, fields.get(key).toString());
 			}
-
-//			System.out.println("stmt: " + stmt.toString());
-//			System.err.println(sql);
 			
 			logger.debug("inserting object via " + stmt.toString());
 			
@@ -359,8 +355,6 @@ public class Resource implements com.sis.dao.Resource {
 
 			stmt.setString(field++, id);
 
-//			System.err.println(sql);
-			
 			logger.debug("updating object via " + stmt.toString());
 
 			try {
@@ -371,7 +365,6 @@ public class Resource implements com.sis.dao.Resource {
 			}
 			
 			stmt.close();
-//			System.out.println(stmt.toString());
 		} catch (SQLException e) {
 			e.printStackTrace();
 			throw new DaoException("unable to update data", e);
@@ -506,11 +499,7 @@ public class Resource implements com.sis.dao.Resource {
 			Iterator<Map.Entry<String, Pair<java.lang.Object[], Integer>>> it = fieldFilters.entrySet().iterator();
 			
 			if (it.hasNext()) {
-//				if (joinStatements.size() > 0) {
-//					sql.append("HAVING ");
-//				} else {
-					sql.append("WHERE ");
-//				}
+				sql.append("WHERE ");
 			}
 			
 			while (it.hasNext()) {
@@ -602,8 +591,6 @@ public class Resource implements com.sis.dao.Resource {
 			}
 			
 			if (limitCount > 0) {
-	//			sql += "LIMIT " + Long.toString(limitOffset) + ", " + Long.toString(limitCount);
-				
 				sql.append("LIMIT ");
 				sql.append(limitOffset);
 				sql.append(',');
@@ -623,9 +610,7 @@ public class Resource implements com.sis.dao.Resource {
 						stmt.setObject(counter++, objects[i]);
 					}
 				}
-	
-//				System.out.println(stmt);
-
+				
 				logger.debug("loading collection via " + stmt.toString());
 				
 				csql = stmt.toString();
@@ -750,5 +735,15 @@ public class Resource implements com.sis.dao.Resource {
 	
 	public void addLeftJoinStatement(String tablename, String expression) {
 		joinStatements.put(tablename, new JoinStatement(tablename, expression, JoinStatement.LEFT));
+	}
+	
+	public static void rawWrite(String definitionStatement) throws DaoException {
+		try {
+			PreparedStatement stmt = getWriteConnection().prepareStatement(definitionStatement, Statement.RETURN_GENERATED_KEYS);
+			
+			stmt.execute();
+		} catch (SQLException e) {
+			throw new DaoException("raw write failed", e);
+		}
 	}
 }

@@ -47,9 +47,7 @@ public class Base {
 			System.exit(1);
 		}
 		
-//		if (hasArgument("--verbose-profiling")) {
-			Profiler.setVerbose(true);
-//		}
+		Profiler.setVerbose(true);
 		
 		if (hasArgument("--config")) {
 			logger.trace("alternative configuration file given, trying to load.");
@@ -94,7 +92,6 @@ public class Base {
 	final private static HashMap<String, String> argumentHints = new HashMap<String, String> () {{
 		put("--set", "overwrites config statement permanently. e.g. \"config/path=blah;config/name=test\"");
 		put("--config", "specifies config path");
-//		put("--verbose-profiling", "enables TRACE messages for every start/stop of any profiler");
 	}};
 
 	// "name" 
