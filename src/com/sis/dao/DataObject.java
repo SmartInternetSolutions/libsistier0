@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import org.apache.log4j.Logger;
 import org.svenson.JSON;
@@ -42,43 +43,89 @@ public class DataObject {
     
     private static final Logger logger = Logger.getLogger(DataObject.class);
     
-    private static final ConcurrentLinkedQueue<Pair<AsyncAction, DataObject>> asyncActions = new ConcurrentLinkedQueue<>();
+    private static class BackloggedAsyncAction {
+    	private AsyncAction asyncAction;
+    	private DataObject dataObject;
+		
+		private int retryCounter = 0;
+    	
+    	public BackloggedAsyncAction(DataObject object, AsyncAction action) {
+    		setAsyncAction(action);
+    		setDataObject(object);
+		}
+
+		public AsyncAction getAsyncAction() {
+			return asyncAction;
+		}
+    	
+		public void setAsyncAction(AsyncAction asyncAction) {
+			this.asyncAction = asyncAction;
+		}
+		
+		public DataObject getDataObject() {
+			return dataObject;
+		}
+		
+		public void setDataObject(DataObject dataObject) {
+			this.dataObject = dataObject;
+		}
+		
+		public int getRetryCounter() {
+			return retryCounter;
+		}
+		
+		public int increaseRetryCounter() {
+			return ++retryCounter;
+		}
+		
+		public void setRetryCounter(int retryCounter) {
+			this.retryCounter = retryCounter;
+		}
+		
+		public void resetRetryCounter() {
+			this.retryCounter = 0;
+		}
+    	
+    }
+    
+    private static final LinkedBlockingQueue<BackloggedAsyncAction> asyncActions = new LinkedBlockingQueue<>();
     private static final Thread asyncHandlerThread;
     
     static {
     	asyncHandlerThread = new Thread(new Runnable() {
 			@Override
 			public void run() {
-				asyncHandlerThread.setName("DataObject asynchronous Queue");
+				asyncHandlerThread.setName("DataObject Asynchronous Queue Worker");
 				
 				// CR: let's group by asyncAction and put through a single transaction?
 				while (!Base.isShuttingDown()) {
-					Pair<AsyncAction, DataObject> pair = null;
+					BackloggedAsyncAction baa = null;
 					
-					while ((pair = asyncActions.poll()) != null) {
+					while ((baa = asyncActions.poll()) != null) {
+						if (baa.getRetryCounter() > 10) {
+							logger.debug("stopped retrying of backlogged async action.");
+						}
+						
 						try {
-							switch (pair.getLeft()) {
+							switch (baa.getAsyncAction()) {
 							case DELETE:
-								pair.getRight().delete();
+								baa.getDataObject().delete();
 								break;
 								
 							case SAVE:
-								pair.getRight().save();
+								baa.getDataObject().save();
 								break;
 							}
+						} catch(DaoException e) {
+							logger.warn("async dao exception, re-putting to queue", e);
+							baa.increaseRetryCounter();
+							asyncActions.add(baa);
 						} catch(Exception e) {
 							logger.error("async action failed!", e);
 						}
 					}
 					
 					logger.debug("finished async action queue");
-					
-					try {
-						synchronized (asyncHandlerThread) {
-							asyncHandlerThread.wait();	
-						}
-					} catch (InterruptedException e) {
-					}
 				}
 			}
 		});
@@ -110,13 +157,9 @@ public class DataObject {
      * queues save command in a fifo backlog. no blocking at all. (errors will be ignored!)
      */
     public void saveAsync() {
-    	Pair<AsyncAction, DataObject> pair = new Pair<DataObject.AsyncAction, DataObject>(AsyncAction.SAVE, this);
+    	BackloggedAsyncAction baa = new BackloggedAsyncAction(this, AsyncAction.SAVE);
     	
-    	asyncActions.add(pair);
-    	
-    	synchronized (asyncHandlerThread) {
-        	asyncHandlerThread.notify();			
-		}
+    	asyncActions.add(baa);
     	
     	waitForSpace();
     }
@@ -125,13 +168,9 @@ public class DataObject {
      * queues delete command in a fifo backlog. no blocking at all. (errors will be ignored!)
      */
     public void deleteAsync() {
-    	Pair<AsyncAction, DataObject> pair = new Pair<DataObject.AsyncAction, DataObject>(AsyncAction.DELETE, this);
-    	    	
-    	asyncActions.add(pair);
+    	BackloggedAsyncAction baa = new BackloggedAsyncAction(this, AsyncAction.DELETE);
     	
-    	synchronized (asyncHandlerThread) {
-        	asyncHandlerThread.notify();			
-		}
+    	asyncActions.add(baa);
     	
     	waitForSpace();
     }

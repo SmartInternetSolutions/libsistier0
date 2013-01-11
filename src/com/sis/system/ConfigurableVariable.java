@@ -98,12 +98,6 @@ public final class ConfigurableVariable<T> {
 
 		this.optionName = optionName;
 		this.argument = argument;
-		
-		if (Base.hasArgument(argument)) {
-			String value = Base.getArgument(argument);
-			setValueFromString(value);
-			logger.debug("variable " + configPath + " set by argument " + argument + " to " + value);
-		} // CR: doesn't make sense because usually this is called before Base.init in main...
 	}
 	
 	public ConfigurableVariable(String configPath, T defaultValue) {
