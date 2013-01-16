@@ -4,7 +4,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -12,7 +11,6 @@ import org.apache.log4j.Logger;
 import org.svenson.JSON;
 
 import com.sis.system.Base;
-import com.sis.util.Pair;
 
 public class DataObject {
     protected String id				= null;
@@ -105,7 +103,8 @@ public class DataObject {
 					try {
 						while ((baa = asyncActions.poll(3, TimeUnit.SECONDS)) != null) {
 							if (baa.getRetryCounter() > 10) {
-								logger.debug("stopped retrying of backlogged async action.");
+								logger.warn("stopped retrying of backlogged async action due to high error count.");
+								return;
 							}
 							
 							try {
@@ -118,7 +117,7 @@ public class DataObject {
 									baa.getDataObject().save();
 									break;
 								}
-							} catch(DaoException e) {
+							} catch(DaoException e) { // FIXME: catch failed connection exceptions here
 								logger.warn("async dao exception, re-putting to queue", e);
 								baa.increaseRetryCounter();
 								asyncActions.add(baa);
