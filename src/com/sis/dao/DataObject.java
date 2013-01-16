@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.log4j.Logger;
 import org.svenson.JSON;
@@ -101,28 +102,31 @@ public class DataObject {
 				while (!Base.isShuttingDown()) {
 					BackloggedAsyncAction baa = null;
 					
-					while ((baa = asyncActions.poll()) != null) {
-						if (baa.getRetryCounter() > 10) {
-							logger.debug("stopped retrying of backlogged async action.");
-						}
-						
-						try {
-							switch (baa.getAsyncAction()) {
-							case DELETE:
-								baa.getDataObject().delete();
-								break;
-								
-							case SAVE:
-								baa.getDataObject().save();
-								break;
+					try {
+						while ((baa = asyncActions.poll(3, TimeUnit.SECONDS)) != null) {
+							if (baa.getRetryCounter() > 10) {
+								logger.debug("stopped retrying of backlogged async action.");
 							}
-						} catch(DaoException e) {
-							logger.warn("async dao exception, re-putting to queue", e);
-							baa.increaseRetryCounter();
-							asyncActions.add(baa);
-						} catch(Exception e) {
-							logger.error("async action failed!", e);
+							
+							try {
+								switch (baa.getAsyncAction()) {
+								case DELETE:
+									baa.getDataObject().delete();
+									break;
+									
+								case SAVE:
+									baa.getDataObject().save();
+									break;
+								}
+							} catch(DaoException e) {
+								logger.warn("async dao exception, re-putting to queue", e);
+								baa.increaseRetryCounter();
+								asyncActions.add(baa);
+							} catch(Exception e) {
+								logger.error("async action failed!", e);
+							}
 						}
+					} catch (InterruptedException e) {
 					}
 					
 					logger.debug("finished async action queue");
