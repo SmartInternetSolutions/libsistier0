@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @param <V> value type
  */
 public class InjectableLinkedMap<K, V> implements Map<K, V> {
-	private static class Link<K, V> {
+	private static class Link<K, V> implements Map.Entry<K, V> {
 		private K key	= null;
 		private V value	= null;
 		
@@ -61,8 +61,10 @@ public class InjectableLinkedMap<K, V> implements Map<K, V> {
 			return value;
 		}
 
-		public void setValue(V value) {
+		public V setValue(V value) {
 			this.value = value;
+			
+			return value;
 		}
 
 		@SuppressWarnings("unused")
@@ -124,8 +126,15 @@ public class InjectableLinkedMap<K, V> implements Map<K, V> {
 
 	@Override
 	public Set<java.util.Map.Entry<K, V>> entrySet() {
-		// TODO Auto-generated method stub
-		return null;
+		LinkedHashSet<Map.Entry<K, V>> set = new LinkedHashSet<>();
+		
+		Link<K, V> current = rootLink;
+
+		while ((current = current.getNext()) != null) {
+			set.add(current);
+		}
+		
+		return set;
 	}
 
 	@Override
