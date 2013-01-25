@@ -1,6 +1,7 @@
 package com.sis.util;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class ArrayHelper {
 	public static <T> boolean inArrayList(ArrayList<? extends T> array, T other) {
@@ -33,5 +34,15 @@ public class ArrayHelper {
 		}
 		
 		return array;
+	}
+
+	public static <T> List<T> toList(T[] elems) {
+		ArrayList<T> list = new ArrayList<>();
+
+		for(T elem : elems) {
+			list.add(elem);
+		}
+		
+		return list;
 	}
 }
