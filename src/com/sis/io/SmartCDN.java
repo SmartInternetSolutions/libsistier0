@@ -120,8 +120,10 @@ public class SmartCDN {
 		profiler.start();
 		
 		try {
-			if (!srcuri.getHost().equalsIgnoreCase(dsturi.getHost()) ||
-				!srcuri.getScheme().equalsIgnoreCase(dsturi.getScheme())) {
+			if ((
+					srcuri.getHost() != null && 
+					!srcuri.getHost().equalsIgnoreCase(dsturi.getHost())
+				) || !srcuri.getScheme().equalsIgnoreCase(dsturi.getScheme())) {
 				if (copyFile(srcuri, dsturi)) {
 					deleteFile(srcuri);
 				}
