@@ -1,9 +1,10 @@
 package com.sis.dao;
 
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -30,9 +31,9 @@ public class DataObject {
     private boolean isDeleted = false, isNew = false;
 
     public DataObject() {
-		data 		= new HashMap<String, java.lang.Object>();
-		origData	= new HashMap<String, java.lang.Object>();
-		modTable	= new HashSet<String>();
+		data 		= new ConcurrentHashMap<>();
+		origData	= new ConcurrentHashMap<>();
+		modTable	= new LinkedHashSet<>();
     }
 
     private enum AsyncAction {
@@ -115,6 +116,7 @@ public class DataObject {
 									
 								case SAVE:
 									baa.getDataObject().save();
+									logger.info("saved object with id " + baa.getDataObject().getId());
 									break;
 								}
 							} catch(DaoException e) { // FIXME: catch failed connection exceptions here
@@ -160,6 +162,7 @@ public class DataObject {
      * queues save command in a fifo backlog. no blocking at all. (errors will be ignored!)
      */
     public void saveAsync() {
+    	// FIXME: doesn't work if save is queue while object is being modified. we need to save a copy or only push the desired command to the resource adapter.
     	BackloggedAsyncAction baa = new BackloggedAsyncAction(this, AsyncAction.SAVE);
     	
     	asyncActions.add(baa);
@@ -236,7 +239,7 @@ public class DataObject {
     	load(value, this.idFieldName);
     }
 
-    public void load(String value, String field) throws DaoException {
+    public synchronized void load(String value, String field) throws DaoException {
 		if (preLoad()) {
 			if (hasResource()) {
 				getResource().load(this, value, field);
@@ -260,7 +263,7 @@ public class DataObject {
 		data.putAll(origData);
     }
 
-    public void delete() throws DaoException {
+    public synchronized void delete() throws DaoException {
 		if (!preDelete()) {
 		    return;
 		}
@@ -274,12 +277,15 @@ public class DataObject {
 		postDelete();
     }
 
-    public void save() throws DaoException {
+    public synchronized void save() throws DaoException {
     	boolean wasNullId = (id == null);
     	
 		if (!preSave() || !isModified) {
 		    return;
 		}
+    	
+		// create a copy for insert request
+		Map<String, Object> data = new HashMap<>(this.data);
 
 		if (hasResource()) {
 			// especially nosql resource adapters have some strange behaviors
@@ -291,10 +297,8 @@ public class DataObject {
 		    		HashMap<String, java.lang.Object> updateMap = new HashMap<String, java.lang.Object>();
 
 		    		// only push modified values to resource adapter
-		    		synchronized (modTable) {
-			    		for (String key : modTable) {
-			    			updateMap.put(key, data.get(key));
-						}
+		    		for (String key : modTable) {
+		    			updateMap.put(key, data.get(key));
 					}
 
 		    		getResource().update(id, updateMap);
