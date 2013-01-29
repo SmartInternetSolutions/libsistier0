@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 
+import org.apache.commons.lang.StringEscapeUtils;
+
 /**
  * miscellaneous helper for String related tasks
  * 
@@ -126,5 +128,9 @@ public class StringHelper {
 		}
 		
 		return false;
+	}
+	
+	public static String escapeHtml(String input) {
+		return StringEscapeUtils.escapeHtml(input);
 	}
 }
