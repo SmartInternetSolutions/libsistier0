@@ -1,12 +1,14 @@
 package com.sis.dao;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.log4j.Logger;
 import org.svenson.JSON;
@@ -31,43 +33,39 @@ public class DataObject {
     private boolean isDeleted = false, isNew = false;
 
     public DataObject() {
-		data 		= new ConcurrentHashMap<>();
-		origData	= new ConcurrentHashMap<>();
+		data 		= Collections.synchronizedMap(new HashMap<String, Object>());
+		origData	= Collections.synchronizedMap(new HashMap<String, Object>());
 		modTable	= new LinkedHashSet<>();
     }
 
-    private enum AsyncAction {
+    private enum DataObjectCommand {
     	DELETE,
-    	SAVE
+    	UPDATE,
+    	INSERT,
+    	INSERT_WITHOUT_SET_ID
     }
     
     private static final Logger logger = Logger.getLogger(DataObject.class);
     
-    private static class BackloggedAsyncAction {
-    	private AsyncAction asyncAction;
-    	private DataObject dataObject;
+    private static class DataObjectCommandPacket {
+    	private final static AtomicInteger counter = new AtomicInteger();
+    	private final int id = counter.incrementAndGet();
+    	
+    	private final DataObjectCommand command;
+    	private Map<String, Object> data = new HashMap<>();
+    	private final DataObject dataObject;
 		
 		private int retryCounter = 0;
     	
-    	public BackloggedAsyncAction(DataObject object, AsyncAction action) {
-    		setAsyncAction(action);
-    		setDataObject(object);
-		}
-
-		public AsyncAction getAsyncAction() {
-			return asyncAction;
-		}
-    	
-		public void setAsyncAction(AsyncAction asyncAction) {
-			this.asyncAction = asyncAction;
-		}
-		
-		public DataObject getDataObject() {
-			return dataObject;
-		}
-		
-		public void setDataObject(DataObject dataObject) {
-			this.dataObject = dataObject;
+    	public DataObjectCommandPacket(DataObject dataObject, Map<String, Object> data, DataObjectCommand command) {
+    		if (data != null) {
+    			setData(data);
+    		}
+    		
+    		this.command = command;
+    		this.dataObject = dataObject;
+    		
+    		counter.incrementAndGet();
 		}
 		
 		public int getRetryCounter() {
@@ -85,10 +83,29 @@ public class DataObject {
 		public void resetRetryCounter() {
 			this.retryCounter = 0;
 		}
+
+		public DataObjectCommand getCommand() {
+			return command;
+		}
+
+		public Map<String, Object> getData() {
+			return data;
+		}
+
+		public void setData(Map<String, Object> data) {
+			this.data.putAll(data);
+		}
+
+		public DataObject getDataObject() {
+			return dataObject;
+		}
     	
+		public synchronized int getId() {
+			return id;
+		}
     }
     
-    private static final LinkedBlockingQueue<BackloggedAsyncAction> asyncActions = new LinkedBlockingQueue<>();
+    private static final LinkedBlockingQueue<DataObjectCommandPacket> asyncCommands = new LinkedBlockingQueue<>();
     private static final Thread asyncHandlerThread;
     
     static {
@@ -97,40 +114,54 @@ public class DataObject {
 			public void run() {
 				asyncHandlerThread.setName("DataObject Asynchronous Queue Worker");
 				
-				// CR: let's group by asyncAction and put through a single transaction?
+				// CR: let's put through a single transaction?
 				while (!Base.isShuttingDown()) {
-					BackloggedAsyncAction baa = null;
+					DataObjectCommandPacket cmd = null;
 					
 					try {
-						while ((baa = asyncActions.poll(3, TimeUnit.SECONDS)) != null) {
-							if (baa.getRetryCounter() > 10) {
-								logger.warn("stopped retrying of backlogged async action due to high error count.");
+						while ((cmd = asyncCommands.poll(3, TimeUnit.SECONDS)) != null) {
+							if (cmd.getRetryCounter() > 10) {
+								logger.warn("stopped retrying of backlogged async command due to high error count.");
 								return;
 							}
-							
+				    		
 							try {
-								switch (baa.getAsyncAction()) {
-								case DELETE:
-									baa.getDataObject().delete();
-									break;
-									
-								case SAVE:
-									baa.getDataObject().save();
-									logger.info("saved object with id " + baa.getDataObject().getId());
-									break;
+								DataObject dao = cmd.getDataObject();
+
+								synchronized (dao) {
+									switch (cmd.getCommand()) {
+									case DELETE:
+										dao.getResource().delete(dao.getId());
+										break;
+										
+									case INSERT:
+										dao.setId(dao.getResource().insert(cmd.getData()));
+										dao.resetStateAfterSave();
+										break;
+										
+									case INSERT_WITHOUT_SET_ID:
+										dao.getResource().insert(cmd.getData());
+										dao.resetStateAfterSave();
+										break;
+										
+									case UPDATE:
+										dao.getResource().update(dao.getId(), cmd.getData());
+										dao.resetStateAfterSave();
+										break;
+									}
 								}
 							} catch(DaoException e) { // FIXME: catch failed connection exceptions here
 								logger.warn("async dao exception, re-putting to queue", e);
-								baa.increaseRetryCounter();
-								asyncActions.add(baa);
+								cmd.increaseRetryCounter();
+								asyncCommands.add(cmd);
 							} catch(Exception e) {
-								logger.error("async action failed!", e);
+								logger.error("async command failed!", e);
 							}
 						}
 					} catch (InterruptedException e) {
 					}
 					
-					logger.debug("finished async action queue");
+					logger.debug("finished async command queue");
 				}
 			}
 		});
@@ -144,10 +175,10 @@ public class DataObject {
     private static void waitForSpace() {
     	Runtime rt = Runtime.getRuntime();
 
-    	if (asyncActions.size() > 10000) {
-    		logger.warn("async queue is getting very large, waiting for async actions to finish. freeMem = " + rt.freeMemory() + ", totalMem = " + rt.totalMemory() + ", size = " + asyncActions.size());
+    	if (asyncCommands.size() > 10000) {
+    		logger.warn("async queue is getting very large, waiting for async actions to finish. freeMem = " + rt.freeMemory() + ", totalMem = " + rt.totalMemory() + ", size = " + asyncCommands.size());
     	
-	    	while (asyncActions.size() > 0) {
+	    	while (asyncCommands.size() > 0) {
 	    		try {
 					Thread.sleep(100);
 				} catch (InterruptedException e) {
@@ -161,11 +192,12 @@ public class DataObject {
     /**
      * queues save command in a fifo backlog. no blocking at all. (errors will be ignored!)
      */
-    public void saveAsync() {
-    	// FIXME: doesn't work if save is queue while object is being modified. we need to save a copy or only push the desired command to the resource adapter.
-    	BackloggedAsyncAction baa = new BackloggedAsyncAction(this, AsyncAction.SAVE);
-    	
-    	asyncActions.add(baa);
+    public synchronized void saveAsync() {
+    	try {
+    		save(true);
+    	} catch (DaoException e) {
+    		logger.error("unexpected exception while save(true) in saveAsync()", e);
+    	}
     	
     	waitForSpace();
     }
@@ -174,9 +206,7 @@ public class DataObject {
      * queues delete command in a fifo backlog. no blocking at all. (errors will be ignored!)
      */
     public void deleteAsync() {
-    	BackloggedAsyncAction baa = new BackloggedAsyncAction(this, AsyncAction.DELETE);
-    	
-    	asyncActions.add(baa);
+    	asyncCommands.add(new DataObjectCommandPacket(this, null, DataObjectCommand.DELETE));
     	
     	waitForSpace();
     }
@@ -255,7 +285,7 @@ public class DataObject {
 		}
     }
 
-    public void revert() {
+    public synchronized void revert() {
 		isModified = false;
 		modTable.clear();
 
@@ -278,14 +308,23 @@ public class DataObject {
     }
 
     public synchronized void save() throws DaoException {
-    	boolean wasNullId = (id == null);
+    	save(false);
+    }
+    
+    private void resetStateAfterSave() throws DaoException {
+		origData.putAll(data);
+		isModified = false;
+		modTable.clear();
+
+		postSave();
+    }
+    
+    private void save(boolean async) throws DaoException {
+    	boolean wasNullId = (this.id == null);
     	
 		if (!preSave() || !isModified) {
 		    return;
 		}
-    	
-		// create a copy for insert request
-		Map<String, Object> data = new HashMap<>(this.data);
 
 		if (hasResource()) {
 			// especially nosql resource adapters have some strange behaviors
@@ -301,9 +340,17 @@ public class DataObject {
 		    			updateMap.put(key, data.get(key));
 					}
 
-		    		getResource().update(id, updateMap);
+		    		if (async) {
+		    			asyncCommands.add(new DataObjectCommandPacket(this, updateMap, DataObjectCommand.UPDATE));
+		    		} else {
+			    		getResource().update(id, updateMap);	
+		    		}
 		    	} else {
-		    		getResource().update(id, data);
+		    		if (async) {
+			        	asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.UPDATE));	
+		    		} else {
+			    		getResource().update(id, data);	
+		    		}
 		    	}
 		    	
 		    	isNew  = false;
@@ -311,21 +358,27 @@ public class DataObject {
 		    	// in case preSave set Id, let's transmit id in data packet.
 		    	if (wasNullId && getId() != null) {
 		    		data.put(idFieldName, getId());
-		    		
-		    		getResource().insert(data);
+
+		    		if (async) {
+		    			asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.INSERT_WITHOUT_SET_ID));
+		    		} else {
+			    		getResource().insert(data);	
+		    		}
 		    	} else {
-		    		setId(getResource().insert(data));
+		    		if (async) {
+		    			asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.INSERT));
+		    		} else {
+			    		setId(getResource().insert(data));
+		    		}
 		    	}
 		    	
 		    	isNew = true;
 		    }
 		}
-
-		origData.putAll(data);
-		isModified = false;
-		modTable.clear();
-
-		postSave();
+		
+		if (!async) {
+			resetStateAfterSave();
+		}
     }
 
     public <T> T getData(String key, Class<T> cast) {
