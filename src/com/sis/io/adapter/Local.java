@@ -35,6 +35,9 @@ public class Local implements AdapterInterface {
 	@Override
 	public OutputStream createFile(URI uri) throws IOException {
 		File file = new File(uri);
+		
+		file.getParentFile().mkdirs();
+		
 		file.createNewFile();
 		
 		return new FileOutputStream(file);
