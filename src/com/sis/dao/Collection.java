@@ -30,44 +30,47 @@ public class Collection implements Iterable<DataObject> {
 	protected void loadCollection() throws DaoException {
 	}
 
-	public void delete() throws DaoException {
-		synchronized (items) {
-			load();
+	public synchronized void delete() throws DaoException {
+		// CR: I'm totally uncomfortable with this solution
+		// FIXME: we should give the resource the ability to remove a collection by its own implementation
+		// CR: Collections can be used as containment for DataObjects so it also doesn't makes a lot of 
+		//     sense to let the resource decide how to delete the objects. Best practise would be probably to
+		//     set a flag whether the collection is load by a resource routine or not. So we can switch here
+		//     from object by object delete and resource backed delete implementation.
+		// TODO: better distinguish if it's load by resource or manually
+		load();
 
-			resource.beginTransaction();
+		resource.beginTransaction();
 
-			try {
-				for (DataObject object : items.values()) {
-					object.delete();
-				}
-
-				clear();
-			} catch(DaoException e) {
-				resource.rollback();
-				throw e;
+		try {
+			for (DataObject object : items.values()) {
+				object.delete();
 			}
 
-			resource.commit();
+			clear();
+		} catch(DaoException e) {
+			resource.rollback();
+			throw e;
 		}
+
+		resource.commit();
 	}
 	
-	public void save() throws DaoException {
-		synchronized (items) {
-			resource.beginTransaction();
-			
-			try {
-				for (DataObject object : items.values()) {
-					object.save();
-				}
-				
-				clear();
-			} catch(DaoException e) {
-				resource.rollback();
-				throw e;
+	public synchronized void save() throws DaoException {
+		resource.beginTransaction();
+		
+		try {
+			for (DataObject object : items.values()) {
+				object.save();
 			}
 			
-			resource.commit();
+			clear();
+		} catch(DaoException e) {
+			resource.rollback();
+			throw e;
 		}
+		
+		resource.commit();
 	}
 
 	public void addItem(DataObject item) {
