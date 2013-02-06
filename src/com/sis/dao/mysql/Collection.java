@@ -35,13 +35,8 @@ public class Collection extends com.sis.dao.Collection {
 
 
 	@Override
-	protected void loadCollection() {
-		try {
-			((Resource) resource).loadCollection(this, fieldFilters, limitCount, limitOffset, fieldSortings);
-		} catch (DaoException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+	protected void loadCollection() throws DaoException {
+		((Resource) resource).loadCollection(this, fieldFilters, limitCount, limitOffset, fieldSortings);
 	}
 
 	@Override

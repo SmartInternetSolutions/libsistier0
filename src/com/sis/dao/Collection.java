@@ -17,18 +17,17 @@ public class Collection implements Iterable<DataObject> {
 
 	@Override
 	public Iterator<DataObject> iterator() {
-		load();
 		return items.values().iterator();
 	}
 
-	public void load() {
+	public void load() throws DaoException {
 		if (!loaded) {
 			loadCollection();
 			loaded = true;
 		}
 	}
 
-	protected void loadCollection() {
+	protected void loadCollection() throws DaoException {
 	}
 
 	public void delete() throws DaoException {
@@ -75,7 +74,7 @@ public class Collection implements Iterable<DataObject> {
 		items.put(item.getId(), item);
 	}
 
-	public DataObject getFirstElement() {
+	public DataObject getFirstElement() throws DaoException {
 		load();
 		try {
 			return iterator().next();
