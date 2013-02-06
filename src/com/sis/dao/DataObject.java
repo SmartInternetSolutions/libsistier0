@@ -165,6 +165,8 @@ public class DataObject {
 			}
 		});
     	
+    	asyncHandlerThread.setDaemon(true);
+    	
     	asyncHandlerThread.start();
     }
     

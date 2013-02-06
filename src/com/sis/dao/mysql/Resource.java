@@ -103,7 +103,7 @@ public class Resource implements com.sis.dao.Resource {
 		}
 	}
 	
-	protected static transient Map<String, Connection> conCache = new ConcurrentHashMap<String, Connection>();
+	protected static Map<String, Connection> conCache = new ConcurrentHashMap<String, Connection>();
 
 	public static synchronized void closeAll() {
 		for (Connection connection : conCache.values()) {
@@ -124,23 +124,54 @@ public class Resource implements com.sis.dao.Resource {
 //	private String shardedBy 	= null;
 //	private String shardSuffix 	= "unknown";
 
-	protected volatile transient static Connection readConnection = null;
-	protected volatile transient static Connection writeConnection = null;
-
-	protected static Connection getReadConnection() {
-		if (readConnection == null) {
-			readConnection = getConnection("slave");
-		}
-
-		return readConnection;
+	protected static Connection readConnections[]	= new Connection[12];
+	protected static Connection writeConnections[]	= new Connection[4];
+	
+	protected static final ConcurrentHashMap<Thread, Integer> writeConnectionOwnerships = new ConcurrentHashMap<>();
+	
+	protected static void releaseOwnershipForWriteConnectionByCurrentThread() {
+		writeConnectionOwnerships.remove(Thread.currentThread());
 	}
 
-	protected static Connection getWriteConnection() {
-		if (writeConnection == null) {
-			writeConnection = getConnection("master");
+	protected static synchronized void takeOwnershipForWriteConnectionByCurrentThread() {
+		if (!hasCurrentThreadOwnershipForWriteConnection()) {
+			writeConnectionOwnerships.put(Thread.currentThread(), (int) Math.round(Math.random() * writeConnections.length));
+		}
+	}
+	
+	protected static boolean hasCurrentThreadOwnershipForWriteConnection() {
+		return writeConnectionOwnerships.contains(Thread.currentThread());
+	}
+	
+	protected static synchronized Connection getReadConnection() {
+		int candidate = (int) Math.floor(Math.random() * readConnections.length);
+		
+		if (readConnections[candidate] == null) {
+			readConnections[candidate] = getConnection("slave");
+			
+			logger.debug("set up new slave connection to candidate " + candidate + ".");
 		}
 
-		return writeConnection;
+		return readConnections[candidate];
+	}
+
+	protected static synchronized Connection getWriteConnection() {
+
+		int candidate = 0;
+		
+		if (hasCurrentThreadOwnershipForWriteConnection()) {
+			candidate = writeConnectionOwnerships.get(Thread.currentThread());
+		} else {
+			candidate = (int) Math.floor(Math.random() * writeConnections.length);
+		}
+		
+		if (writeConnections[candidate] == null) {
+			writeConnections[candidate] = getConnection("master");
+
+			logger.debug("set up new master connection to candidate " + candidate + ".");
+		}
+
+		return writeConnections[candidate];
 	}
 
 	protected static Connection getConnection(String dbId) {
@@ -233,43 +264,46 @@ public class Resource implements com.sis.dao.Resource {
 		Profiler profiler = new Profiler("MySQL load Object", DaoManager.getDaoExecutionWarningThreshold());
 		profiler.start();
 		
-		try {
-			PreparedStatement stmt = getReadConnection().prepareStatement("SELECT * FROM `" + tableName + "` WHERE `" + field + "` = ? LIMIT 1");
-
-			stmt.setString(1, value);
-
-			stmt.setMaxRows(1);
-
-			ResultSet res = null;
-
-			logger.debug("loading object via " + stmt.toString());
-			
+		Connection connection = getReadConnection();
+		
+		synchronized (connection) {
 			try {
-				res = stmt.executeQuery();
-			} catch(SQLRecoverableException e) {
-				logger.debug("first executeQuery() failed, ignoring.", e);
-				res = stmt.executeQuery();
+				PreparedStatement stmt = connection.prepareStatement("SELECT * FROM `" + tableName + "` WHERE `" + field + "` = ? LIMIT 1");
+	
+				stmt.setString(1, value);
+	
+				stmt.setMaxRows(1);
+	
+				ResultSet res = null;
+	
+				logger.debug("loading object via " + stmt.toString());
+				
+				try {
+					res = stmt.executeQuery();
+				} catch(SQLRecoverableException e) {
+					logger.debug("first executeQuery() failed, ignoring.", e);
+					res = stmt.executeQuery();
+				}
+	
+				ResultSetMetaData rsmd = res.getMetaData();
+			    int numColumns = rsmd.getColumnCount();
+	
+				if (res.next()) {
+					for (int i=1; i < numColumns + 1; i++) {
+				        String columnName = rsmd.getColumnName(i);
+	
+				        object.setData(columnName, res.getObject(columnName));
+				    }
+				}
+	
+				res.close();
+				stmt.close();
+			} catch (SQLException e) {
+				throw new DaoException("unable to load data", e);
+			} finally {
+				profiler.stop();
 			}
-
-			ResultSetMetaData rsmd = res.getMetaData();
-		    int numColumns = rsmd.getColumnCount();
-
-			if (res.next()) {
-				for (int i=1; i < numColumns + 1; i++) {
-			        String columnName = rsmd.getColumnName(i);
-
-			        object.setData(columnName, res.getObject(columnName));
-			    }
-			}
-
-			res.close();
-			stmt.close();
-		} catch (SQLException e) {
-			throw new DaoException("unable to load data", e);
-		} finally {
-			profiler.stop();
 		}
-
 	}
 
 	@Override
@@ -283,49 +317,50 @@ public class Resource implements com.sis.dao.Resource {
 
 		String sql = "INSERT INTO " + createTableName() + " SET ";
 
-		try {
-			for (String key : fields.keySet()) {
-				sql += "`" + key + "` = ?, ";
-			}
-
-			sql = sql.substring(0, sql.length() - 2);
-
-			PreparedStatement stmt = getWriteConnection().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
-
-			int field = 1;
-			for (String key : fields.keySet()) {
-				 stmt.setObject(field++, fields.get(key));
-			}
-			
-			logger.debug("inserting object via " + stmt.toString());
-			
+		Connection connection = getWriteConnection();
+		
+		synchronized (connection) {
 			try {
-				stmt.executeUpdate();
-			} catch(SQLRecoverableException e) {
-				logger.debug("first executeUpdate() failed, ignoring.", e);
-				stmt.executeUpdate();
+				for (String key : fields.keySet()) {
+					sql += "`" + key + "` = ?, ";
+				}
+	
+				sql = sql.substring(0, sql.length() - 2);
+	
+				PreparedStatement stmt = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+	
+				int field = 1;
+				for (String key : fields.keySet()) {
+					 stmt.setObject(field++, fields.get(key));
+				}
+				
+				logger.debug("inserting object via " + stmt.toString());
+				
+				try {
+					stmt.executeUpdate();
+				} catch(SQLRecoverableException e) {
+					logger.debug("first executeUpdate() failed, ignoring.", e);
+					stmt.executeUpdate();
+				}
+	
+				String id = "";
+				ResultSet rs = stmt.getGeneratedKeys();
+	
+				if (rs.next()) {
+		            id = rs.getString(1);
+		        }
+	
+		        rs.close();
+				stmt.close();
+	
+		        return id;
+			} catch (SQLException e) {
+				e.printStackTrace();
+				throw new DaoException("unable to insert data", e);
+			} finally {
+				profiler.stop();
 			}
-
-			String id = "";
-			ResultSet rs = stmt.getGeneratedKeys();
-
-			if (rs.next()) {
-	            id = rs.getString(1);
-	        }
-
-	        rs.close();
-			stmt.close();
-
-	        return id;
-		} catch (SQLException e) {
-			e.printStackTrace();
-			throw new DaoException("unable to insert data", e);
-		} finally {
-			profiler.stop();
 		}
-
-
-//		return null;
 	}
 
 	@Override
@@ -339,37 +374,41 @@ public class Resource implements com.sis.dao.Resource {
 
 		String sql = "UPDATE " + createTableName() + " SET ";
 
-		try {
-			for (String key : updateMap.keySet()) {
-				sql += "`" + key + "` = ?, ";
-			}
-
-			sql = sql.substring(0, sql.length() - 2) + " WHERE `" + idFieldName +  "` = ? LIMIT 1";
-
-			PreparedStatement stmt = getWriteConnection().prepareStatement(sql);
-
-			int field = 1;
-			for (String key : updateMap.keySet()) {
-				stmt.setObject(field++, updateMap.get(key));
-			}
-
-			stmt.setString(field++, id);
-
-			logger.debug("updating object via " + stmt.toString());
-
+		Connection connection = getWriteConnection();
+		
+		synchronized (connection) {
 			try {
-				stmt.executeUpdate();
-			} catch(SQLRecoverableException e) {
-				logger.debug("first executeUpdate() failed, ignoring.", e);
-				stmt.executeUpdate();
+				for (String key : updateMap.keySet()) {
+					sql += "`" + key + "` = ?, ";
+				}
+	
+				sql = sql.substring(0, sql.length() - 2) + " WHERE `" + idFieldName +  "` = ? LIMIT 1";
+	
+				PreparedStatement stmt = connection.prepareStatement(sql);
+	
+				int field = 1;
+				for (String key : updateMap.keySet()) {
+					stmt.setObject(field++, updateMap.get(key));
+				}
+	
+				stmt.setString(field++, id);
+	
+				logger.debug("updating object via " + stmt.toString());
+	
+				try {
+					stmt.executeUpdate();
+				} catch(SQLRecoverableException e) {
+					logger.debug("first executeUpdate() failed, ignoring.", e);
+					stmt.executeUpdate();
+				}
+				
+				stmt.close();
+			} catch (SQLException e) {
+				e.printStackTrace();
+				throw new DaoException("unable to update data", e);
+			} finally {
+				profiler.stop();
 			}
-			
-			stmt.close();
-		} catch (SQLException e) {
-			e.printStackTrace();
-			throw new DaoException("unable to update data", e);
-		} finally {
-			profiler.stop();
 		}
 
 		return true;
@@ -380,24 +419,28 @@ public class Resource implements com.sis.dao.Resource {
 		Profiler profiler = new Profiler("MySQL delete Object", DaoManager.getDaoExecutionWarningThreshold());
 		profiler.start();
 
-		try {
-			PreparedStatement stmt = getWriteConnection().prepareStatement("DELETE FROM " + createTableName() + " WHERE `" + idFieldName + "` = ?");
-			stmt.setObject(1, id);
-
-			logger.debug("deleting object via " + stmt.toString());
-			
+		Connection connection = getWriteConnection();
+		
+		synchronized (connection) {
 			try {
-				stmt.executeUpdate();
-			} catch(SQLRecoverableException e) {
-				logger.debug("first executeUpdate() failed, ignoring.", e);
-				stmt.executeUpdate();
+				PreparedStatement stmt = connection.prepareStatement("DELETE FROM " + createTableName() + " WHERE `" + idFieldName + "` = ?");
+				stmt.setObject(1, id);
+	
+				logger.debug("deleting object via " + stmt.toString());
+				
+				try {
+					stmt.executeUpdate();
+				} catch(SQLRecoverableException e) {
+					logger.debug("first executeUpdate() failed, ignoring.", e);
+					stmt.executeUpdate();
+				}
+				
+				stmt.close();
+			} catch(SQLException e) {
+				throw new DaoException("unable to delete data", e);
+			} finally {
+				profiler.stop();
 			}
-			
-			stmt.close();
-		} catch(SQLException e) {
-			throw new DaoException("unable to delete data", e);
-		} finally {
-			profiler.stop();
 		}
 
 		return false;
@@ -408,6 +451,8 @@ public class Resource implements com.sis.dao.Resource {
 		logger.trace("beginTransaction()");
 		
 		try {
+			takeOwnershipForWriteConnectionByCurrentThread();
+			
 			getWriteConnection().setAutoCommit(false);
 		} catch (SQLException e) {
 			throw new DaoException("beginTransaction failed, " + e.getMessage(), e);
@@ -419,20 +464,32 @@ public class Resource implements com.sis.dao.Resource {
 		logger.trace("commit()");
 		
 		try {
-			getWriteConnection().commit();
-			getWriteConnection().setAutoCommit(true);
+			Connection connection = getWriteConnection();
+			
+			synchronized (connection) {
+				connection.commit();
+				connection.setAutoCommit(true);	
+			}
+			
+			releaseOwnershipForWriteConnectionByCurrentThread();
 		} catch (SQLException e) {
 			throw new DaoException("commit failed, " + e.getMessage(), e);
 		}
 	}
-
+	
 	@Override
 	public void rollback() throws DaoException {
 		logger.trace("rollback()");
 		
 		try {
-			getWriteConnection().rollback();
-			getWriteConnection().setAutoCommit(true);
+			Connection connection = getWriteConnection();
+			
+			synchronized (connection) {
+				connection.rollback();
+				connection.setAutoCommit(true);
+			}
+			
+			releaseOwnershipForWriteConnectionByCurrentThread();
 		} catch (SQLException e) {
 			throw new DaoException("rollback failed, " + e.getMessage(), e);
 		}
@@ -599,52 +656,57 @@ public class Resource implements com.sis.dao.Resource {
 			
 			String csql = null;
 			
-			try {
-				PreparedStatement stmt = getWriteConnection().prepareStatement(sql.toString());
-	
-				int counter = 1;
-				for (String key : fieldFilters.keySet()) {
-					java.lang.Object[] objects = fieldFilters.get(key).getLeft();
-	
-					for (int i = 0, j = objects.length; i != j; i++) {
-						stmt.setObject(counter++, objects[i]);
-					}
-				}
-				
-				logger.debug("loading collection via " + stmt.toString());
-				
-				csql = stmt.toString();
-	
-				ResultSet res = null;
-	
+			Connection connection = getWriteConnection();
+			
+			synchronized (connection) {
 				try {
-					res = stmt.executeQuery();
-				} catch(SQLRecoverableException e) {
-					logger.debug("first executeQuery() failed, ignoring.", e);
-					res = stmt.executeQuery();
+					PreparedStatement stmt = connection.prepareStatement(sql.toString());
+		
+					int counter = 1;
+					for (String key : fieldFilters.keySet()) {
+						java.lang.Object[] objects = fieldFilters.get(key).getLeft();
+		
+						for (int i = 0, j = objects.length; i != j; i++) {
+							stmt.setObject(counter++, objects[i]);
+						}
+					}
+					
+					logger.debug("loading collection via " + stmt.toString());
+					
+					csql = stmt.toString();
+		
+					ResultSet res = null;
+		
+					try {
+						res = stmt.executeQuery();
+					} catch(SQLRecoverableException e) {
+						logger.debug("first executeQuery() failed, ignoring.", e);
+						res = stmt.executeQuery();
+					}
+		
+					while (res.next()) {
+						com.sis.dao.mysql.DataObject item = (com.sis.dao.mysql.DataObject) collection.newItem();
+		
+						ResultSetMetaData rsmd = res.getMetaData();
+					    int numColumns = rsmd.getColumnCount();
+		
+						for (int i=1; i < numColumns + 1; i++) {
+					        String columnName = rsmd.getColumnName(i);
+		
+					        item.setData(columnName, res.getObject(columnName));
+					    }
+		
+						collection.addItem(item);
+					}
+		
+					res.close();
+					stmt.close();
+		
+				} catch (SQLException e) {
+					
+					throw new DaoException("unable to select: " + e.getMessage() + ", sql: " + (csql != null ? csql : "<null>"), e);
 				}
-	
-				while (res.next()) {
-					com.sis.dao.mysql.DataObject item = (com.sis.dao.mysql.DataObject) collection.newItem();
-	
-					ResultSetMetaData rsmd = res.getMetaData();
-				    int numColumns = rsmd.getColumnCount();
-	
-					for (int i=1; i < numColumns + 1; i++) {
-				        String columnName = rsmd.getColumnName(i);
-	
-				        item.setData(columnName, res.getObject(columnName));
-				    }
-	
-					collection.addItem(item);
-				}
-	
-				res.close();
-				stmt.close();
-	
-			} catch (SQLException e) {
 				
-				throw new DaoException("unable to select: " + e.getMessage() + ", sql: " + (csql != null ? csql : "<null>"), e);
 			}
 		} finally {
 			profiler.stop();
