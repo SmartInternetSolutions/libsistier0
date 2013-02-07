@@ -56,11 +56,11 @@ public class JSONInputStreamCharacterSource implements JSONCharacterSource {
 		}
 		
 		try {
-			if (inputStream.available() > 0) {
-				return inputStream.read();
-			}
+			int c = inputStream.read();
 			
 			index++;
+			
+			return c;
 		} catch (IOException e) {
 			logger.error("could not read stream!", e);
 		}

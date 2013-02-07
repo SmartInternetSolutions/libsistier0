@@ -182,7 +182,7 @@ public class XmlConfig implements ConfigInterface {
 
 	public boolean hasValue(String string) {
 		String v = getValue(string);
-		return v == null || v.length() == 0;
+		return v != null && v.length() > 0;
 	}
 //
 //	@Override
