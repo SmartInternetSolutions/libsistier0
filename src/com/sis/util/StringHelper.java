@@ -3,6 +3,7 @@ package com.sis.util;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -27,6 +28,18 @@ public class StringHelper {
 	
 	public static String databaseDate(Date date) {
 		return databaseDateFormat.format(date);
+	}
+	
+	public static Date createDateByDatabaseDate(String databaseDate) {
+		return createDateByDatabaseDate(databaseDate, new Date());
+	}
+	
+	public static Date createDateByDatabaseDate(String databaseDate, Date defaultValue) {
+		try {
+			return databaseDateFormat.parse(databaseDate);
+		} catch (ParseException e) {
+			return defaultValue;
+		}
 	}
 	
 	public static String calculateMD5(java.lang.String input) {

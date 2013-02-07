@@ -408,6 +408,7 @@ public class DataObject {
 
     public void setData(Map <String, java.lang.Object> data) {
 		isModified = true;
+		this.data.clear();
 		this.data.putAll(data);
 
 		for (String key : data.keySet()) {
