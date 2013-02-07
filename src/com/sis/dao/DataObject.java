@@ -441,6 +441,10 @@ public class DataObject {
     public boolean isModified() {
 		return isModified;
 	}
+    
+    protected boolean isModified(String field) {
+    	return modTable.contains(field);
+    }
 
 	public boolean isDeleted() {
 		return isDeleted;
