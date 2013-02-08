@@ -55,7 +55,7 @@ public class StringHelper {
 		
 		StringBuffer hexString = new StringBuffer();
         for (int i=0; i<result.length; i++) {
-            hexString.append(Integer.toHexString(0xFF & result[i]));
+            hexString.append(String.format("%02X", 0xFF & result[i]));
         }
         
         return hexString.toString();
