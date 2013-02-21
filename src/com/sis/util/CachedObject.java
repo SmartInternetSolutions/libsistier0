@@ -33,6 +33,11 @@ public class CachedObject<T> {
 		
 		this.acquisitionCallback = acquisitionCallback;
 	}
+	
+	public CachedObject(int lifetime, T defaultValue, AcquirerCallback<T> acquisitionCallback, Object data) {
+		this(lifetime, defaultValue, acquisitionCallback);
+		this.data = data;
+	}
 
 	public long getLifetime() {
 		return lifetime;

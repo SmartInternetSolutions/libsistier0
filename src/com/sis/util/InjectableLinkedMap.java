@@ -1,5 +1,6 @@
 package com.sis.util;
 
+import java.io.Serializable;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
@@ -18,7 +19,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @param <K> key type
  * @param <V> value type
  */
-public class InjectableLinkedMap<K, V> implements Map<K, V> {
+public class InjectableLinkedMap<K, V> implements Map<K, V>, Serializable, Cloneable {
+	private static final long serialVersionUID = -2756532148353187993L;
+
 	private static class Link<K, V> implements Map.Entry<K, V> {
 		private K key	= null;
 		private V value	= null;
@@ -33,7 +36,6 @@ public class InjectableLinkedMap<K, V> implements Map<K, V> {
 		}
 
 		public Link() {
-			// TODO Auto-generated constructor stub
 		}
 
 		public void clear() {
@@ -85,9 +87,9 @@ public class InjectableLinkedMap<K, V> implements Map<K, V> {
 		}
 	}
 
-	private final AtomicInteger	size 		= new AtomicInteger(0);
-	private final Link<K, V> 	rootLink 	= new Link<K, V>();
-	private Link<K, V> 			lastLink 	= rootLink;
+	private transient final AtomicInteger	size 		= new AtomicInteger(0);
+	private transient final Link<K, V> 		rootLink 	= new Link<K, V>();
+	private transient Link<K, V> 			lastLink 	= rootLink;
 
 	@Override
 	public void clear() {
