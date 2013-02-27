@@ -2,7 +2,9 @@ package com.sis.system;
 
 import java.net.URL;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
+import java.util.Map;
 
 import org.apache.log4j.Logger;
 import org.apache.log4j.xml.DOMConfigurator;
@@ -54,9 +56,7 @@ public class Base {
 			
 			config = XmlConfig.getSingleton();
 			
-			try {
-				config.loadConfig(new URL(getArgument("--config")));
-			} finally {
+			if (!config.loadConfig(new URL(getArgument("--config")))) {
 				config.init();
 			}
 		} else {
@@ -89,7 +89,7 @@ public class Base {
 	final private static LinkedList<Object> otherStrings = new LinkedList<Object> ();
 	
 	@SuppressWarnings("serial")
-	final private static HashMap<String, String> argumentHints = new HashMap<String, String> () {{
+	final private static Map<String, String> argumentHints = new LinkedHashMap<String, String> () {{
 		put("--set", "overwrites config statement permanently. e.g. \"config/path=blah;config/name=test\"");
 		put("--config", "specifies config path");
 	}};
