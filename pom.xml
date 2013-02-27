@@ -155,5 +155,10 @@
 		<artifactId>hadoop-hdfs</artifactId>
 		<version>0.23.3</version>
 	</dependency>
+	<dependency>
+		<groupId>com.amazonaws</groupId>
+		<artifactId>aws-java-sdk</artifactId>
+		<version>1.0.002</version>
+	</dependency>
   </dependencies>
 </project>
