@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
-import java.util.Date;
 
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.log4j.Logger;
@@ -87,7 +86,7 @@ public class S3 implements AdapterInterface {
 		}
 		
 		@Override
-		public synchronized void write(int b) throws IOException {
+		public void write(int b) throws IOException {
 			stream.write(b);
 		}
 		
