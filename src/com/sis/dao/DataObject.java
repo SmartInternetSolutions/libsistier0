@@ -121,7 +121,7 @@ public class DataObject {
 						while ((cmd = asyncCommands.poll(3, TimeUnit.SECONDS)) != null) {
 							if (cmd.getRetryCounter() > 10) {
 								logger.warn("stopped retrying of backlogged async command due to high error count.");
-								return;
+								continue;
 							}
 				    		
 							try {
