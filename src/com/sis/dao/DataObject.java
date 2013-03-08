@@ -118,7 +118,7 @@ public class DataObject {
 					DataObjectCommandPacket cmd = null;
 					
 					try {
-						while ((cmd = asyncCommands.poll(3, TimeUnit.SECONDS)) != null) {
+						while ((cmd = asyncCommands.poll(30, TimeUnit.SECONDS)) != null) {
 							if (cmd.getRetryCounter() > 10) {
 								logger.warn("stopped retrying of backlogged async command due to high error count.");
 								continue;
@@ -159,8 +159,6 @@ public class DataObject {
 						}
 					} catch (InterruptedException e) {
 					}
-					
-					logger.debug("finished async command queue");
 				}
 			}
 		});
@@ -386,22 +384,29 @@ public class DataObject {
     	return getData(key, cast, null);
     }
     
-    public <T> T getData(String key, Class<T> cast, T defaultValue) {
+    @SuppressWarnings("unchecked")
+	public <T> T getData(String key, Class<T> cast, T defaultValue) {
 		try {
-			if (!data.containsKey(key)) {
+			Object o = data.get(key);
+			
+			if (o == null) {
 				return defaultValue;
 			}
 			
-			return cast.cast(data.get(key));
-		} catch(Exception e) {
-			try {
-				return cast.newInstance();
-			} catch (InstantiationException | IllegalAccessException e2) {
-				return null;
+			// workaround for broken string casts
+			if (String.class.isAssignableFrom(cast)) {
+				return (T) o.toString();
 			}
+			
+			return cast.cast(o);
+		} catch(Exception e) {
+			logger.warn("error while casting data.", e);
+			
+			return null;
 		}
     }
     
+    @Deprecated
     public java.lang.Object getData(String key) {
 		return hasData(key) ? data.get(key) : null;
     }

@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.log4j.Logger;
@@ -276,7 +277,9 @@ public class Resource implements com.sis.dao.Resource {
 	
 				ResultSet res = null;
 	
-				logger.debug("loading object via " + stmt.toString());
+				if (logger.isDebugEnabled()) {
+					logger.debug("loading object via " + stmt.toString());
+				}
 				
 				try {
 					res = stmt.executeQuery();
@@ -334,7 +337,9 @@ public class Resource implements com.sis.dao.Resource {
 					 stmt.setObject(field++, fields.get(key));
 				}
 				
-				logger.debug("inserting object via " + stmt.toString());
+				if (logger.isDebugEnabled()) {
+					logger.debug("inserting object via " + stmt.toString());
+				}
 				
 				try {
 					stmt.executeUpdate();
@@ -393,8 +398,10 @@ public class Resource implements com.sis.dao.Resource {
 	
 				stmt.setString(field++, id);
 	
-				logger.debug("updating object via " + stmt.toString());
-	
+				if (logger.isDebugEnabled()) {
+					logger.debug("updating object via " + stmt.toString());
+				}
+				
 				try {
 					stmt.executeUpdate();
 				} catch(SQLRecoverableException e) {
@@ -426,7 +433,9 @@ public class Resource implements com.sis.dao.Resource {
 				PreparedStatement stmt = connection.prepareStatement("DELETE FROM " + createTableName() + " WHERE `" + idFieldName + "` = ?");
 				stmt.setObject(1, id);
 	
-				logger.debug("deleting object via " + stmt.toString());
+				if (logger.isDebugEnabled()) {
+					logger.debug("deleting object via " + stmt.toString());
+				}
 				
 				try {
 					stmt.executeUpdate();
@@ -564,12 +573,25 @@ public class Resource implements com.sis.dao.Resource {
 				
 				String field = pair.getKey();
 				Pair<java.lang.Object[], Integer> dpair = pair.getValue();
+				java.lang.Object[] values = dpair.getLeft();
 				
 				if (dpair.getRight() == Collection.FILTER_CUSTOM) {
-					sql.append(field);
-					sql.append(' ');
+					if (values.length > 1) {
+						for (int i = 0, j = values.length; i < j; i++) {
+							if (i > 0) {
+								sql.append(" OR ");
+							}
+
+							sql.append('(');
+							sql.append(values[i]);
+							sql.append(')');
+						}
+						
+					} else {
+						sql.append(field);
+						sql.append(' ');
+					}					
 				} else {
-					java.lang.Object[] values = dpair.getLeft();
 					
 					sql.append('(');
 					
@@ -663,15 +685,20 @@ public class Resource implements com.sis.dao.Resource {
 					PreparedStatement stmt = connection.prepareStatement(sql.toString());
 		
 					int counter = 1;
-					for (String key : fieldFilters.keySet()) {
-						java.lang.Object[] objects = fieldFilters.get(key).getLeft();
+//					for (String key : fieldFilters.keySet()) { // FIXME: optimize
+					for (Entry<String, Pair<Object[], Integer>> entry : fieldFilters.entrySet()) {
+						java.lang.Object[] objects = entry.getValue().getLeft();
 		
 						for (int i = 0, j = objects.length; i != j; i++) {
-							stmt.setObject(counter++, objects[i]);
+							if (entry.getValue().getRight() == Collection.FILTER_CUSTOM && j > 1) {
+								stmt.setObject(counter++, entry.getKey());
+							} else  {
+								stmt.setObject(counter++, objects[i]);
+							}
 						}
 					}
 					
-					logger.debug("loading collection via " + stmt.toString());
+					logger.info("loading collection via " + stmt.toString());
 					
 					csql = stmt.toString();
 		
@@ -725,7 +752,7 @@ public class Resource implements com.sis.dao.Resource {
 		long l = 0;
 
 		try {
-			String sql = "SELECT COUNT(1) FROM " + createTableName() + " " + compileJoin() + " " + compileWhere(fieldFilters);
+			String sql = "SELECT COUNT(*) FROM " + createTableName() + " " + compileJoin() + " " + compileWhere(fieldFilters);
 
 			PreparedStatement stmt = getWriteConnection().prepareStatement(sql);
 
@@ -740,7 +767,9 @@ public class Resource implements com.sis.dao.Resource {
 
 			ResultSet res = null;
 
-			logger.debug("counting via " + stmt.toString());
+			if (logger.isDebugEnabled()) {
+				logger.debug("counting via " + stmt.toString());
+			}
 			
 			try {
 				res = stmt.executeQuery();
