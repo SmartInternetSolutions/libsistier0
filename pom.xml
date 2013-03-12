@@ -14,23 +14,13 @@
         <configuration>
           <source>1.7</source>
           <target>1.7</target>
+		    <excludes>
+		      <exclude>**/com/sis/dao/couchdb/*.java</exclude>
+		      <exclude>**/com/sis/dao/solr/*.java</exclude>
+		    </excludes>
         </configuration>
       </plugin>
     </plugins>
-    <resources>
-      <resource>
-        <directory>src/com/sis/dao/couchdb</directory>
-        <excludes>
-          <exclude>**/*.java</exclude>
-        </excludes>
-      </resource>
-      <resource>
-        <directory>src/com/sis/dao/solr</directory>
-        <excludes>
-          <exclude>**/*.java</exclude>
-        </excludes>
-      </resource>
-    </resources>
   </build>
   <dependencies>
   	<dependency>
