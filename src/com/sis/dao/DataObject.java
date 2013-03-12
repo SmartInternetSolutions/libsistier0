@@ -15,6 +15,14 @@ import org.svenson.JSON;
 import com.sis.system.Base;
 
 public class DataObject {
+	public static class AsyncCallback {
+		public void success(DataObject object) {
+		}
+
+		public void failed(DataObject object) {
+		}
+	}
+	
     protected String id				= null;
 
     protected String idFieldName 	= "id";
@@ -55,10 +63,16 @@ public class DataObject {
     	private final DataObject dataObject;
 		
 		private int retryCounter = 0;
+		
+		private AsyncCallback asyncCallback = null;
     	
-    	public DataObjectCommandPacket(DataObject dataObject, Map<String, Object> data, DataObjectCommand command) {
+    	public DataObjectCommandPacket(DataObject dataObject, Map<String, Object> data, DataObjectCommand command, AsyncCallback asyncCallback) {
     		if (data != null) {
     			setData(data);
+    		}
+    		
+    		if (asyncCallback != null) {
+    			setAsyncCallback(asyncCallback);
     		}
     		
     		this.command = command;
@@ -95,6 +109,20 @@ public class DataObject {
 			this.data.putAll(data);
 		}
 
+		/**
+		 * @return the asyncCallback
+		 */
+		public AsyncCallback getAsyncCallback() {
+			return asyncCallback;
+		}
+
+		/**
+		 * @param asyncCallback the asyncCallback to set
+		 */
+		public void setAsyncCallback(AsyncCallback asyncCallback) {
+			this.asyncCallback = asyncCallback;
+		}
+
 		public DataObject getDataObject() {
 			return dataObject;
 		}
@@ -119,14 +147,19 @@ public class DataObject {
 					
 					try {
 						while ((cmd = asyncCommands.poll(30, TimeUnit.SECONDS)) != null) {
+							AsyncCallback asyncCallback = cmd.getAsyncCallback();
+							DataObject dao = cmd.getDataObject();
+							
 							if (cmd.getRetryCounter() > 10) {
 								logger.warn("stopped retrying of backlogged async command due to high error count.");
+								
+								if (asyncCallback != null) {
+									asyncCallback.failed(dao);
+								}
 								continue;
 							}
-				    		
+							
 							try {
-								DataObject dao = cmd.getDataObject();
-
 								synchronized (dao) {
 									switch (cmd.getCommand()) {
 									case DELETE:
@@ -149,12 +182,20 @@ public class DataObject {
 										break;
 									}
 								}
+								
+								if (asyncCallback != null) {
+									asyncCallback.success(dao);
+								}
 							} catch(DaoException e) { // FIXME: catch failed connection exceptions here
 								logger.warn("async dao exception, re-putting to queue", e);
 								cmd.increaseRetryCounter();
 								asyncCommands.add(cmd);
 							} catch(Exception e) {
 								logger.error("async command failed!", e);
+
+								if (asyncCallback != null) {
+									asyncCallback.failed(dao);
+								}
 							}
 						}
 					} catch (InterruptedException e) {
@@ -193,7 +234,20 @@ public class DataObject {
      */
     public synchronized void saveAsync() {
     	try {
-    		save(true);
+    		save(true, null);
+    	} catch (DaoException e) {
+    		logger.error("unexpected exception while save(true) in saveAsync()", e);
+    	}
+    	
+    	waitForSpace();
+    }
+    
+    /**
+     * queues save command in a fifo backlog. no blocking at all.
+     */
+    public synchronized void saveAsync(AsyncCallback callback) {
+    	try {
+    		save(true, callback);
     	} catch (DaoException e) {
     		logger.error("unexpected exception while save(true) in saveAsync()", e);
     	}
@@ -202,10 +256,19 @@ public class DataObject {
     }
 
     /**
+     * queues delete command in a fifo backlog. no blocking at all.
+     */
+    public void deleteAsync(AsyncCallback asyncCallback) {
+    	asyncCommands.add(new DataObjectCommandPacket(this, null, DataObjectCommand.DELETE, asyncCallback));
+    	
+    	waitForSpace();
+    }
+    
+    /**
      * queues delete command in a fifo backlog. no blocking at all. (errors will be ignored!)
      */
     public void deleteAsync() {
-    	asyncCommands.add(new DataObjectCommandPacket(this, null, DataObjectCommand.DELETE));
+    	asyncCommands.add(new DataObjectCommandPacket(this, null, DataObjectCommand.DELETE, null));
     	
     	waitForSpace();
     }
@@ -307,7 +370,7 @@ public class DataObject {
     }
 
     public synchronized void save() throws DaoException {
-    	save(false);
+    	save(false, null);
     }
     
     private void resetStateAfterSave() throws DaoException {
@@ -318,7 +381,7 @@ public class DataObject {
 		postSave();
     }
     
-    private void save(boolean async) throws DaoException {
+    private void save(boolean async, AsyncCallback callback) throws DaoException {
     	boolean wasNullId = (this.id == null);
     	
 		if (!preSave() || !isModified) {
@@ -340,13 +403,13 @@ public class DataObject {
 					}
 
 		    		if (async) {
-		    			asyncCommands.add(new DataObjectCommandPacket(this, updateMap, DataObjectCommand.UPDATE));
+		    			asyncCommands.add(new DataObjectCommandPacket(this, updateMap, DataObjectCommand.UPDATE, callback));
 		    		} else {
 			    		getResource().update(id, updateMap);	
 		    		}
 		    	} else {
 		    		if (async) {
-			        	asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.UPDATE));	
+			        	asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.UPDATE, callback));	
 		    		} else {
 			    		getResource().update(id, data);	
 		    		}
@@ -359,13 +422,13 @@ public class DataObject {
 		    		data.put(idFieldName, getId());
 
 		    		if (async) {
-		    			asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.INSERT_WITHOUT_SET_ID));
+		    			asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.INSERT_WITHOUT_SET_ID, callback));
 		    		} else {
 			    		getResource().insert(data);	
 		    		}
 		    	} else {
 		    		if (async) {
-		    			asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.INSERT));
+		    			asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.INSERT, callback));
 		    		} else {
 			    		setId(getResource().insert(data));
 		    		}
