@@ -1,5 +1,6 @@
 package com.sis.util;
 
+import java.io.StringWriter;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
@@ -9,7 +10,17 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 
+import javax.xml.transform.Result;
+import javax.xml.transform.Source;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerConfigurationException;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+
 import org.apache.commons.lang.StringEscapeUtils;
+import org.w3c.dom.Node;
 
 /**
  * miscellaneous helper for String related tasks
@@ -146,4 +157,26 @@ public class StringHelper {
 	public static String escapeHtml(String input) {
 		return StringEscapeUtils.escapeHtml(input);
 	}
+	
+	/**
+	 * Taken from http://www.coderanch.com/how-to/java/DocumentToString
+	 * @param node
+	 * @return
+	 */
+    public static String xmlToString(Node node) {
+        try {
+            Source source = new DOMSource(node);
+            StringWriter stringWriter = new StringWriter();
+            Result result = new StreamResult(stringWriter);
+            
+            TransformerFactory factory = TransformerFactory.newInstance();
+            Transformer transformer = factory.newTransformer();
+            transformer.transform(source, result);
+
+            return stringWriter.getBuffer().toString();
+        } catch (TransformerConfigurationException e) {
+        } catch (TransformerException e) {
+        }
+        return null;
+    }
 }
