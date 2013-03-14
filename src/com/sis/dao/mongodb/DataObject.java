@@ -47,33 +47,6 @@ public class DataObject extends com.sis.dao.DataObject {
     	return cleanObject(data.get(key));
     }
     
-	private final Map<String, Set<String>> tagAdds 		= new HashMap<String, Set<String>>();
-	private final Map<String, Set<String>> tagRemoves	= new HashMap<String, Set<String>>();
-	
-	protected void addTag(String field, String tag) {
-		if (!tagAdds.containsKey(field)) {
-			tagAdds.put(field, new HashSet<String> ());
-		}
-		
-		tagAdds.get(field).add(tag);
-		tagRemoves.remove(field);
-	}
-	
-	protected void removeTag(String field, String tag) {
-		if (!tagRemoves.containsKey(field)) {
-			tagRemoves.put(field, new HashSet<String> ());
-		}
-		
-		tagRemoves.get(field).add(tag);
-		tagAdds.remove(field);
-	}
-	
-	private final Map<String, Integer> fieldIncrements = new HashMap<String, Integer>();
-
-	protected void incrementField(String field, int delta) {
-		fieldIncrements.put(field, delta);
-	}
-	
 	@Override
 	protected void postSave() throws DaoException {
 		((Resource) resource).updateTagsAndIncrements(id, tagAdds, tagRemoves, fieldIncrements);

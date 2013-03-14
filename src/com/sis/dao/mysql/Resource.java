@@ -21,6 +21,7 @@ import com.sis.dao.Collection;
 import com.sis.dao.DaoManager;
 import com.sis.dao.DaoException;
 import com.sis.dao.DataObject;
+import com.sis.dao.DataObject.DbExpression;
 import com.sis.system.Profiler;
 import com.sis.system.XmlConfig;
 import com.sis.util.Pair;
@@ -324,8 +325,17 @@ public class Resource implements com.sis.dao.Resource {
 		
 		synchronized (connection) {
 			try {
-				for (String key : fields.keySet()) {
-					sql += "`" + key + "` = ?, ";
+				for (Map.Entry<String, Object> entry : fields.entrySet()) {
+					Object val = entry.getValue();
+					String key = entry.getKey();
+					
+					if (val instanceof DbExpression) {
+						sql += "`" + key + "` = " + val.toString();
+					} else {
+						sql += "`" + key + "` = ?";
+					}
+					
+					sql += ", ";
 				}
 	
 				sql = sql.substring(0, sql.length() - 2);
@@ -334,7 +344,11 @@ public class Resource implements com.sis.dao.Resource {
 	
 				int field = 1;
 				for (String key : fields.keySet()) {
-					 stmt.setObject(field++, fields.get(key));
+					Object obj = fields.get(key);
+					
+					if (!(obj instanceof DbExpression)) {
+						stmt.setObject(field++, obj);
+					}
 				}
 				
 				if (logger.isDebugEnabled()) {
@@ -383,8 +397,17 @@ public class Resource implements com.sis.dao.Resource {
 		
 		synchronized (connection) {
 			try {
-				for (String key : updateMap.keySet()) {
-					sql += "`" + key + "` = ?, ";
+				for (Map.Entry<String, Object> entry : updateMap.entrySet()) {
+					Object val = entry.getValue();
+					String key = entry.getKey();
+					
+					if (val instanceof DbExpression) {
+						sql += "`" + key + "` = " + val.toString();
+					} else {
+						sql += "`" + key + "` = ?";
+					}
+					
+					sql += ", ";
 				}
 	
 				sql = sql.substring(0, sql.length() - 2) + " WHERE `" + idFieldName +  "` = ? LIMIT 1";
@@ -393,7 +416,11 @@ public class Resource implements com.sis.dao.Resource {
 	
 				int field = 1;
 				for (String key : updateMap.keySet()) {
-					stmt.setObject(field++, updateMap.get(key));
+					Object obj = updateMap.get(key);
+					
+					if (!(obj instanceof DbExpression)) {
+						stmt.setObject(field++, obj);
+					}
 				}
 	
 				stmt.setString(field++, id);
@@ -401,6 +428,8 @@ public class Resource implements com.sis.dao.Resource {
 				if (logger.isDebugEnabled()) {
 					logger.debug("updating object via " + stmt.toString());
 				}
+				
+				logger.info("sql: " + stmt.toString());
 				
 				try {
 					stmt.executeUpdate();

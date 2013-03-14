@@ -2,6 +2,7 @@ package com.sis.dao;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -15,6 +16,22 @@ import org.svenson.JSON;
 import com.sis.system.Base;
 
 public class DataObject {
+	/**
+	 * wrapper for raw database statements
+	 */
+	public static class DbExpression {
+		private final String dbExpr;
+		
+		public DbExpression(String dbExpr) {
+			this.dbExpr = dbExpr;
+		}
+		
+		@Override
+		public String toString() {
+			return dbExpr;
+		}
+	}
+	
 	public static class AsyncCallback {
 		public void success(DataObject object) {
 		}
@@ -38,6 +55,10 @@ public class DataObject {
 	protected Set<String> modTable						= null;
 
     private boolean isDeleted = false, isNew = false;
+
+	protected final Map<String, Set<String>> tagAdds 		= Collections.synchronizedMap(new HashMap<String, Set<String>>());
+	protected final Map<String, Set<String>> tagRemoves		= Collections.synchronizedMap(new HashMap<String, Set<String>>());
+	protected final Map<String, Integer> fieldIncrements 	= Collections.synchronizedMap(new HashMap<String, Integer>());
 
     public DataObject() {
 		data 		= Collections.synchronizedMap(new HashMap<String, Object>());
@@ -381,6 +402,21 @@ public class DataObject {
 		postSave();
     }
     
+    protected Map<String, Object> createInsertMap() {		
+		return new HashMap<String, Object>(data);
+    }
+    
+    protected Map<String, Object> createUpdateMap() {
+    	HashMap<String, Object> updateMap = new HashMap<String, Object>();
+
+		// only push modified values to resource adapter
+		for (String key : modTable) {
+			updateMap.put(key, data.get(key));
+		}
+		
+		return updateMap;
+    }
+    
     private void save(boolean async, AsyncCallback callback) throws DaoException {
     	boolean wasNullId = (this.id == null);
     	
@@ -395,12 +431,7 @@ public class DataObject {
 		    if (checkResourceForCapability(com.sis.dao.Resource.CAPABILITY_UPDATE) &&
 	    		(!wasNullId || checkResourceForCapability(com.sis.dao.Resource.CAPABILITY_INSERT_BY_UPDATE))) {
 		    	if (!checkResourceForCapability(com.sis.dao.Resource.CAPABILITY_NEED_FULL_UPDATE)) {
-		    		HashMap<String, java.lang.Object> updateMap = new HashMap<String, java.lang.Object>();
-
-		    		// only push modified values to resource adapter
-		    		for (String key : modTable) {
-		    			updateMap.put(key, data.get(key));
-					}
+		    		Map<String, Object> updateMap = createUpdateMap();
 
 		    		if (async) {
 		    			asyncCommands.add(new DataObjectCommandPacket(this, updateMap, DataObjectCommand.UPDATE, callback));
@@ -408,29 +439,33 @@ public class DataObject {
 			    		getResource().update(id, updateMap);	
 		    		}
 		    	} else {
+		    		Map<String, Object> insertMap = createInsertMap();
+		    		
 		    		if (async) {
-			        	asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.UPDATE, callback));	
+			        	asyncCommands.add(new DataObjectCommandPacket(this, insertMap, DataObjectCommand.UPDATE, callback));	
 		    		} else {
-			    		getResource().update(id, data);	
+			    		getResource().update(id, insertMap);	
 		    		}
 		    	}
 		    	
 		    	isNew  = false;
 		    } else if (checkResourceForCapability(com.sis.dao.Resource.CAPABILITY_INSERT)) {
+	    		Map<String, Object> insertMap = createInsertMap();
+	    		
 		    	// in case preSave set Id, let's transmit id in data packet.
 		    	if (wasNullId && getId() != null) {
-		    		data.put(idFieldName, getId());
+		    		insertMap.put(idFieldName, getId());
 
 		    		if (async) {
-		    			asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.INSERT_WITHOUT_SET_ID, callback));
+		    			asyncCommands.add(new DataObjectCommandPacket(this, insertMap, DataObjectCommand.INSERT_WITHOUT_SET_ID, callback));
 		    		} else {
 			    		getResource().insert(data);	
 		    		}
 		    	} else {
 		    		if (async) {
-		    			asyncCommands.add(new DataObjectCommandPacket(this, data, DataObjectCommand.INSERT, callback));
+		    			asyncCommands.add(new DataObjectCommandPacket(this, insertMap, DataObjectCommand.INSERT, callback));
 		    		} else {
-			    		setId(getResource().insert(data));
+			    		setId(getResource().insert(insertMap));
 		    		}
 		    	}
 		    	
@@ -526,6 +561,36 @@ public class DataObject {
 		this.isNew = isNew;
 	}
 
+	protected void addTag(String field, String tag) {
+		if (!tagAdds.containsKey(field)) {
+			tagAdds.put(field, Collections.synchronizedSet(new HashSet<String> ()));
+		}
+		
+		tagAdds.get(field).add(tag);
+		// FIXME: better remove only the value from field, not the entire field.
+		tagRemoves.remove(field);
+		
+		isModified = true;
+	}
+	
+	protected void removeTag(String field, String tag) {
+		if (!tagRemoves.containsKey(field)) {
+			tagRemoves.put(field, Collections.synchronizedSet(new HashSet<String> ()));
+		}
+		
+		tagRemoves.get(field).add(tag);
+		// FIXME: better remove only the value from field, not the entire field.
+		tagAdds.remove(field);
+		
+		isModified = true;
+	}
+	
+	protected void incrementField(String field, int delta) {
+		fieldIncrements.put(field, delta);
+		
+		isModified = true;
+	}
+	
 	public HashMap<String, java.lang.Object> toArray() {
     	HashMap<String, java.lang.Object> array = new HashMap<String, java.lang.Object>();
 
