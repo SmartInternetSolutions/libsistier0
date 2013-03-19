@@ -429,8 +429,6 @@ public class Resource implements com.sis.dao.Resource {
 					logger.debug("updating object via " + stmt.toString());
 				}
 				
-				logger.info("sql: " + stmt.toString());
-				
 				try {
 					stmt.executeUpdate();
 				} catch(SQLRecoverableException e) {
@@ -727,7 +725,9 @@ public class Resource implements com.sis.dao.Resource {
 						}
 					}
 					
-					logger.info("loading collection via " + stmt.toString());
+					if (logger.isDebugEnabled()) {
+						logger.debug("loading collection via " + stmt.toString());
+					}
 					
 					csql = stmt.toString();
 		
