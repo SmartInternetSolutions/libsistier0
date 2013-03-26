@@ -189,16 +189,19 @@ public class DataObject {
 										
 									case INSERT:
 										dao.setId(dao.getResource().insert(cmd.getData()));
+								    	dao.setNew(true);
 										dao.resetStateAfterSave();
 										break;
 										
 									case INSERT_WITHOUT_SET_ID:
 										dao.getResource().insert(cmd.getData());
+										dao.setNew(true);
 										dao.resetStateAfterSave();
 										break;
 										
 									case UPDATE:
 										dao.getResource().update(dao.getId(), cmd.getData());
+										dao.setNew(false);
 										dao.resetStateAfterSave();
 										break;
 									}
@@ -344,11 +347,11 @@ public class DataObject {
     protected void postDelete() throws DaoException {
     }
 
-    public void load(long id) throws DaoException {
+    public synchronized void load(long id) throws DaoException {
     	load(Long.toString(id));
     }
 
-    public void load(String value) throws DaoException {
+    public synchronized void load(String value) throws DaoException {
     	load(value, this.idFieldName);
     }
 
@@ -400,6 +403,8 @@ public class DataObject {
 		modTable.clear();
 
 		postSave();
+		
+		isNew = false;
     }
     
     protected Map<String, Object> createInsertMap() {		
@@ -417,7 +422,7 @@ public class DataObject {
 		return updateMap;
     }
     
-    private void save(boolean async, AsyncCallback callback) throws DaoException {
+    private synchronized void save(boolean async, AsyncCallback callback) throws DaoException {
     	boolean wasNullId = (this.id == null);
     	
 		if (!preSave() || !isModified) {
