@@ -399,10 +399,11 @@ public class DataObject {
     
     private void resetStateAfterSave() throws DaoException {
 		origData.putAll(data);
-		isModified = false;
-		modTable.clear();
 
 		postSave();
+		
+		isModified = false;
+		modTable.clear();
 		
 		isNew = false;
     }
