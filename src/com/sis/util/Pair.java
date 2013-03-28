@@ -31,4 +31,24 @@ public class Pair<L, R> {
 		
 		return pair.l.equals(l) && pair.r.equals(r);
 	}
+	
+	@Override
+	public String toString() {
+		StringBuilder sb = new StringBuilder();
+		
+		if (l == null) {
+			sb.append("(null)");
+		} else {
+			sb.append(l.toString());
+		}
+		
+		if (r == null) {
+			sb.append(", (null)");
+		} else {
+			sb.append(", ");
+			sb.append(r.toString());
+		}
+		
+		return sb.toString();
+	}
 }

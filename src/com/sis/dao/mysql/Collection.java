@@ -40,7 +40,7 @@ public class Collection extends com.sis.dao.Collection {
 	}
 
 	@Override
-	public long getCount() {
+	public long getCount() { // FIXME: should throw DaoException
 		return ((Resource) resource).count(fieldFilters, limitCount, limitOffset);
 	}
 }
